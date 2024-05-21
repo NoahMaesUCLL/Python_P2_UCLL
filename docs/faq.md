@@ -1,0 +1,434 @@
+---
+layout: page
+title: FAQ
+show_in_header: yes
+---
+
+* Table of Contents
+{:toc}
+
+# Assertions
+
+## Should I use `assert` to validate parameters?
+
+`assert` is meant for debugging, as explained on the [official site](https://docs.python.org/3/reference/simple_stmts.html#the-assert-statement).
+
+Typically, programs can run in two modes:
+
+* **Debug mode**: extra checks are performed, making the application run slower but making it easier to find bugs.
+* **Release mode**: the code is optimized, making it run faster, but if something goes wrong, it's harder to know why.
+
+An `assert`ion only runs in debug mode.
+Therefore, your code should never depend on `assert` for important things, such as parameter validation.
+
+## When should I use `assert`?
+
+`assert` is often used in tests: these run in debug mode (it wouldn't make any sense to run them in release mode) so we are certain that assertions will be checked.
+
+You can also use `assert` for sanity checks.
+Say you are writing a `sort` function.
+Sorting is a nontrivial algorithm and things can easily go wrong.
+It can therefore be helpful to have the `sort` function check its own results:
+
+```python
+def sort(lst):
+    # Algorithm that sorts lst and stores it in result
+
+    # Check result
+    assert is_sorted(result)
+    assert contain_same_elements(lst, result)
+
+    # Return result
+    return result
+```
+
+This way, every time you call `sort`, the code performs a "self check".
+If your code fails to sort `lst` correctly, you'll immediately get a big `AssertionError` thrown at you.
+This is A Good Thing: [Fail-Fast](https://en.wikipedia.org/wiki/Fail-fast) truly is your friend.
+
+While these self-checks can slow down your program considerably, remember that you can turn off assertions by running your program in release mode.
+
+Assertions work well because it turns out that _checking_ a solution is often much simpler than _finding_ a solution.
+For example, we can implement the two checks as
+
+```python
+def is_sorted(xs):
+    return all(x <= y for x, y in zip(xs, xs[1:]))
+
+def contain_same_elements(xs, ys):
+    return Counter(xs) == Counter(ys)
+```
+
+---
+
+# Classes
+
+## How should I implement `__eq__`?
+
+`__eq__` is the dunder method that corresponds to the `lhs == rhs` operator.
+It is a binary operator, i.e., it takes two operands.
+
+Since `__eq__` is always defined in class, say `C`, this means you always know something about the type of the left operand: it is an object of type `C`, or of a child class of `C`.
+
+The right operand is trickier though: it can be _anything_.
+The first thing you'll probably want to do is to determine its type.
+When you're implementing a class `C`, you should have an idea which other object a `C` object could be equal to.
+Generally, you'll only want to compare your `C` object with other `C` objects.
+For example, a `Person` object can only be equal to other `Person` objects.
+
+The first thing you'll do then is to check the type of the right operand:
+
+```python
+class C:
+    def __eq__(self, rhs):
+        if isinstance(rhs, C):
+            # We know rhs has type C, we can use this information to compare self with rhs
+        else:
+            ???
+```
+
+Your `__eq__` could also be able to check equality with other types of objects, so feel free to go through a list of other types:
+
+```python
+class C:
+    def __eq__(self, rhs):
+        if isinstance(rhs, C):
+            # ...
+        elif isinstance(rhs, str):
+            # ...
+        elif isinstance(rhs, list):
+            # ...
+        else:
+            ???
+```
+
+Don't overdo this, however.
+The meaning of your `__eq__` should be intuitive and meaningful.
+You should definitely not try to make it overly flexible by allowing comparison with all kinds of type.
+Sometimes being strict and rigid is the best way to go.
+
+What to do if `rhs` has a type you don't support?
+For example, it makes little sense to compare a `Person` with a `list`.
+You could simply return `False`.
+There is a better solution though, and that is to return `NotImplemented`.
+
+Let's do a little experiment:
+
+```python
+class Foo:
+    def __eq__(self, rhs):
+        if isinstance(rhs, Foo):
+            return True
+        else:
+            return NotImplemented
+
+>>> foo = Foo()
+>>> foo == 5
+False
+```
+
+This should surprise you: we compare a `Foo` object with `5`, for which your `__eq__` method returns `NotImplemented`, not `False`.
+Why does `foo == 5` not evaluate to `NotImplemented`?
+
+As explained [on the official Python pages](https://docs.python.org/3/library/constants.html#NotImplemented), when you evaluate `x == y`, Python will cann `x.__eq__(y)`.
+If this returns `NotImplemented`, Python will instead try out `y.__eq__(x)`.
+If this again returns `NotImplemented`, the `x == y` will evaluate to `False`.
+
+> The documentation is not completely accurate: it claims that if both `x.__eq__(y)` and `y.__eq__(x)` return `NotImplemented`, an exception will be raised.
+> This is not the case, as is pointed out by [this discussion](https://bugs.python.org/issue39111).
+> It is true however for other binary operators.
+
+Why does Python operate like this?
+Why would `y.__eq__(x)` yield a different result?
+Wouldn't that simply be inconsistent?
+
+Consider the following code:
+
+```python
+class Foo:
+    def __eq__(self, rhs):
+        if isinstance(rhs, Foo):
+            return True
+        else:
+            return NotImplemented
+
+
+class Bar:
+    def __eq__(self, rhs):
+        if isinstance(rhs, Bar):
+            return True
+        if isinstance(rhs, Foo):
+            return True
+        return False
+```
+
+In this case, `Foo() == Bar()` would return `True`.
+But if this is what we want, why doesn't `Foo.__eq__` simply return `True` instead of `NotImplemented` when comparing to a `Bar`?
+
+The `Foo` and `Bar` classes are not necessarily defined at the same time.
+At the time someone wrote `Foo`, `Bar` may not have existed, so there was no reason for it to add code for it in `Foo.__eq__`.
+Maybe only much later, `Bar` was added and it was decided that `Foo`s and `Bar`s should be the same.
+
+Maybe you're wondering if it wouldn't be better to simply update `Foo.__eq__` when `Bar` was added.
+This would indeed be a cleaner solution and we wouldn't need this `NotImplemented` trickery, but updating `Foo` might not be an option.
+Maybe it's part of a library, maybe the company doesn't like modifying well-tested code, etc.
+
+Say you develop a `Fraction` class.
+The fraction 2/3 would be written `Fraction(2, 3)` in Python code.
+You would probably want to allow `Fraction`s to be compared to `int`s and `float`s.
+For example, you would like `1` to be considered equal to `Fraction(2, 2)`.
+
+Having `Fraction(2, 2) == 1` is easy to achieve, as this calls `Fraction.__eq__`, which is under your control.
+However, for `1 == Fraction(2, 2)` to be `True`, you'd have to somehow be able to update `int.__eq__`, but that's not possible.
+Thanks to `NotImplemented` however, this is not necessary: `1.__eq__(Fraction(1, 1))` will return `NotImplemented`, causing `Fraction(1, 1).__eq__(1)` to be evaluated next, which can return `True`.
+
+## Should I check parameter types using `isinstance`?
+
+Short answer: no.
+
+Now for the long answer...
+Say we want to write our own `sum` function.
+(Yes, we know it already exists, but it makes for a good example.)
+A possible definition would be
+
+```python
+def sum(lst):
+    result = lst[0]
+    for elt in lst:
+        result += elt
+    return elt
+```
+
+Now, of course, it makes no sense to call `sum` on a string, so we can try to impose limitations on `lst`'s type.
+We insist `lst` must a a `list`:
+
+```python
+def sum(lst):
+    if not isinstance(lst, list):
+        raise TypeError('lst must be a list')
+    result = 0
+    for elt in lst:
+        result += elt
+    return elt
+```
+
+Okay, this prevents us from passing `sum` strings, `Person`s or other weird things as argument.
+However, we can still pass a list of, say, `Person`s...
+Those are not particularly summable.
+Maybe we should check the elements' type too.
+
+```python
+def sum(lst):
+    if not isinstance(lst, list):
+        raise TypeError('lst must be a list of ints')
+    if not all(isinstance(elt, int) for elt in lst):
+        raise TypeError('lst must be a list of ints')
+    result = 0
+    for elt in lst:
+        result += elt
+    return elt
+```
+
+There.
+Now `sum` should be fool proof.
+Only `list`s of `int`s.
+
+But what if we have a _tuple_ of `int`s?
+Should we really rewrite a separate `sum` function to deal with tuples?
+It would be exactly the same code!
+
+Okay, let's add some flexibility to our existing `sum`:
+
+```python
+def sum(lst):
+    if not isinstance(lst, list) and not isinstance(lst, tuple):
+        raise TypeError('lst must be a list or tuple of ints')
+    if not all(isinstance(elt, int) for elt in lst):
+        raise TypeError('lst must be a list or tuple of ints')
+    result = 0
+    for elt in lst:
+        result += elt
+    return elt
+```
+
+So, it can be a list or a tuple of `int`s.
+But what about `set`s?
+Okay, here we go again...
+
+```python
+def sum(lst):
+    if not isinstance(lst, list) and not isinstance(lst, tuple) and not isinstance(lst, set):
+        raise TypeError('lst must be a list or tuple or set of ints')
+    if not all(isinstance(elt, int) for elt in lst):
+        raise TypeError('lst must be a list or tuple or set of ints')
+    result = 0
+    for elt in lst:
+        result += elt
+    return elt
+```
+
+Surely we're done now.
+Well, not really.
+What about a list of `float`s?
+
+```python
+def sum(lst):
+    if not isinstance(lst, list) and not isinstance(lst, tuple) and not isinstance(lst, set):
+        raise TypeError('lst must be a list or tuple or set of ints or floats')
+    if not all(isinstance(elt, int) or isinstance(elt, float) for elt in lst):
+        raise TypeError('lst must be a list or tuple or set of ints or floats')
+    result = 0
+    for elt in lst:
+        result += elt
+    return elt
+```
+
+But then there's also `Fraction`s that are addable.
+And `complex`s.
+And vectors.
+And matrices.
+And quaternions!
+
+This is becoming ridiculous.
+We need something... saner.
+
+Right now we are checking that our arguments have specific *types*, but this is actually the wrong approach.
+We want to focus on the _operations_ available on the arguments instead of their types.
+
+For example, we need to be able to _iterate_ over `lst` using a `for` loop.
+We don't care if it's a list, or a set, or a tuple, or anything else: we just want it to be iterable.
+Something can be looped over if it has a `__iter__` method, so that's what we need to look for.
+
+```python
+def sum(lst):
+    if not hasattr(lst, '__iter__'):
+        raise TypeError()
+    if not all(isinstance(elt, int) or isinstance(elt, float) for elt in lst):
+        raise TypeError()
+    result = 0
+    for elt in lst:
+        result += elt
+    return elt
+```
+
+The elements of `lst` should be addable, so they need a `__add__` method.
+
+```python
+def sum(lst):
+    if not hasattr(lst, '__iter__'):
+        raise TypeError()
+    if not all(hasattr(elt, '__add__') for elt in lst):
+        raise TypeError()
+    result = 0
+    for elt in lst:
+        result += elt
+    return elt
+```
+
+But what if `lst` contains a mix of matrices and `int`s?
+Both have an `__add__` method, but it will not be happy with its argument types: matrices only want to be added to matrices, not with `int`s.
+
+As you can see, it becomes quite complex.
+We need many checks, which makes the code both unwieldy and inefficient.
+Added to this, if we didn't check, we'd still be receiving an error message down the road.
+For example, using a `for` loop on `lst` will call `__iter__`, so the check does happen, just a little bit later.
+It's not perfect (e.g., it's not [fail-fast](https://en.wikipedia.org/wiki/Fail-fast)), but it's something.
+
+There are actually programming language that support [static type checking](https://en.wikipedia.org/wiki/Type_system#Type_checking).
+These languages do check all types, and they do so at zero efficiency cost.
+However, Python is a dynamically typed language.
+It's less robust, but more flexible.
+It's a choice.
+
+There is actually a [way](https://peps.python.org/pep-0484/) to add static type checking to Python.
+It's not perfect and sometimes clumsy, but it does help.
+
+## How should I build strings?
+
+There are multiple ways to construct a string.
+
+* Using addition: `"Greetings, " + name`. Avoid it: it is the most unreadable and inefficient approach.
+* [Using the `%` operator](https://docs.python.org/3/library/stdtypes.html#str.format): `"Greetings, %s" % name`. Quirky and limited. Best to avoid.
+* [Using `str.format`](https://docs.python.org/3/library/stdtypes.html#str.format): `"Greetings, {}".format(name)`.
+* [String interpolation](https://docs.python.org/3/reference/lexical_analysis.html#f-strings): f"Greetings {name}". This is the preferred solution. See also [PEP 498](https://peps.python.org/pep-0498/).
+
+## What's the difference between `__str__` and `__repr__`?
+
+Both are methods that are meant to convert an object into a string.
+You should never call these methods directly, but instead use `str` and `repr`:
+
+```python
+print(str(some_object))    # Internally class some_object.__str__
+print(repr(some_object))   # Internally class some_object.__repr__
+```
+
+* `__str__` should return a human-friendly, readable representation of the object.
+* `__repr__` should return a string that is actually Python code which allows you to recreate the object.
+
+For example,
+
+```python
+class Book:
+    def __init__(self, title, author):
+        self.title = title
+        self.author = author
+
+    def __str__(self):
+        return f'{self.title} written by {self.author}'
+
+    def __repr__(self):
+        # {self.title!r} is shorthand for {repr(self.title)}
+        return f"Book(title={self.title!r}, author={self.author!r})"
+```
+
+# Git
+
+## Why do you inflict Git on us? What did we do to deserve this?
+
+You deserve this because you chose to study in IT...
+
+Admittedly, Git can be difficult to work with at first, but we assure you, once you understand how it works, it holds few surprises and using it will become second nature.
+
+Git is by far [the most used VCS](https://www.openhub.net/repositories/compare) (Version Control System).
+Git was developed by Linus Torvalds. He wanted a decent VCS for the development of Linux but couldn't find one, so he decided to [write his own](https://en.wikipedia.org/wiki/Git#History).
+Since then, Git has made its way in the industry: Google, Microsoft, Amazon, Twitter, Netflix, ... all use it.
+
+## How do I get better at Git?
+
+Chapter 2 of the [freely available book Pro Git](https://git-scm.com/book/en/v2) will help out a lot.
+Chapter 3 is also very useful.
+
+On B, create a new directory and clone your repository there.
+
+```bash
+# Replace URL by your GitHub URL
+$ git clone URL
+```
+
+In order to be able to receive updates on machine B, you might want to also add a link to the lecturer's repo:
+
+```bash
+$ git remote add upstream https://github.com/UCLL-PR2/exercises.git
+```
+
+Say you work on machine A.
+You need to store your changes in the repository.
+This is done as explained on the [workflow](workflow.md) page:
+
+```bash
+# Store changes in local repository on A
+$ git add FILES
+$ git commit -m "MESSAGE"
+
+# Upload changes to GitHub
+$ git push
+```
+
+You can then download your changes on machine B:
+
+```bash
+# Downloads changes from GitHub
+$ git pull
+```
+
+So, in short, you push your changes on one machine and pull them onto the other machine.
