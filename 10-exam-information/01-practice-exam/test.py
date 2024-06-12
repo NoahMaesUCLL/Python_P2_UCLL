@@ -11,12 +11,6 @@ def allocate(block_count):
         used_blocks.add(list_available_blocks[i])
 
 def free(blocks):
-    list_available_blocks = list(available_blocks)
-    list_used_blocks = list(used_blocks)
-
-    available_blocks = set(sorted(list_available_blocks))
-    used_blocks = set(sorted(list_used_blocks))
-    
     for block in blocks:
         if block not in used_blocks:
             raise RuntimeError
@@ -24,6 +18,9 @@ def free(blocks):
     for block in blocks:
         used_blocks.remove(block)
         available_blocks.add(block)
+
+    available_blocks = set(sorted(available_blocks))
+    used_blocks = set(sorted(used_blocks))
 
 import re
 
@@ -33,5 +30,14 @@ def is_valid_name(name):
     
     return False
 
-print(is_valid_name("testDAS12.3dsadasff"))
+test_set = set()
+test_set.add(1)
+test_set.add(0)
+test_set.add(4)
+test_set.add(5)
+test_set.add(2)
+test_set.add(3)
 
+
+
+print(sorted(test_set))
