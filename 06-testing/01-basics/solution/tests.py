@@ -1,7 +1,6 @@
 import pytest
 from intervals import overlapping_intervals
 
-
 @pytest.mark.parametrize('left1', range(0, 10))
 @pytest.mark.parametrize('right1', range(0, 10))
 @pytest.mark.parametrize('left2', range(0, 10))
